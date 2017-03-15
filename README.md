@@ -48,6 +48,8 @@ if err := src.Consume(); err != nil {
 
 Reads []byte, decode as t.Line{}, encode back to []byte, writes to stdout
 
+In this example, the POC is definitely missing a streamReadWriter to clean a bit.
+
 ```go
 	send := t.NewByteReaderCloser(os.Stdin)
 	send.CloseOn(sigTerm)

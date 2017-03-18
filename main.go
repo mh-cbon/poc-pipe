@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/mh-cbon/pipe/t"
@@ -18,7 +20,8 @@ func main() {
 	// demo3()
 	// demo4()
 	// demo5()
-	demo6()
+	// demo6()
+	csvdemo()
 }
 
 func demo() {
@@ -152,7 +155,7 @@ func demo6() {
 			socketsWriter = append(socketsWriter, w)
 
 			if err := rcv.Consume(); err != nil {
-				panic(err)
+				fmt.Println("PEER LEFT 2")
 			}
 		}()
 		send.Sink(t.NewByteSink(socket).OnError(func(p t.Flusher, err error) error {
@@ -168,6 +171,87 @@ func demo6() {
 	sigTerm()
 	close <- true
 }
+
+// demo csv read/write.
+func csvdemo() {
+
+	// f, err := os.Open("C:/ORIG.csv")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	var b bytes.Buffer
+	b.Write([]byte(csvdata))
+
+	src := t.NewCsvReader(&b)
+	src.
+		Pipe(&processCsvRecords{}).
+		Pipe(&t.CsvWriter{}).
+		Pipe(t.NewBytesPrefixer("", "\n")).
+		Sink(t.NewByteSink(os.Stdout))
+
+	if err := src.Consume(); err != nil {
+		panic(err)
+	}
+
+}
+
+// Calculate economic block value given a 40x20x12 block of density sg and grade
+func calculateE(sg float64, grade float64) float64 {
+	return 40 * 20 * 12 * sg * grade * 80 / 10 * 0.66
+}
+
+type processCsvRecords struct {
+	t.StringSliceStream
+	d bool
+}
+
+func (p *processCsvRecords) Write(rec []string) error {
+
+	// skip headers
+	if !p.d {
+		p.d = true
+		return p.StringSliceStream.Write(
+			[]string{"set", "headers", "as", "you", "d", "like", "it"},
+		)
+	}
+	if len(rec) < 17 {
+		return fmt.Errorf("Line too short %#v", rec)
+	}
+
+	sg, _ := strconv.ParseFloat(rec[17], 64)
+	grade, _ := strconv.ParseFloat(rec[13], 64)
+
+	if grade < 0 {
+		grade = 0
+	} else {
+		grade = 0.1 * grade
+	}
+	if sg < 0 {
+		sg = 0
+	}
+	// fmt.Println(grade)
+	// get economic block value
+	e := calculateE(sg, grade)
+	gradeStr := strconv.FormatFloat(grade, 'f', 8, 64)
+	sgStr := strconv.FormatFloat(sg, 'f', 8, 64)
+	eStr := strconv.FormatFloat(e, 'f', 8, 64)
+	return p.StringSliceStream.Write(
+		append(rec[0:4], eStr, sgStr, gradeStr),
+	)
+}
+
+// 500mb csv with head of the data looks like:
+const csvdata = `xcentre,ycentre,zcentre,xlength,ylength,zlength,fe_percent,fe_recovery,oxide,rescat,sg,mat_type_8,fillpc,mass_recovery,mass_recovery_percent,air,al2o3,cao,k2o,loi,mgo,mno,phos,sio2,tio2
+556960.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+557000.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+556960.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+557000.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+556960.000,6319980.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+557000.000,6319980.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+556960.000,6320000.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+557000.000,6320000.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+557040.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+`
 
 func sigTerm() {
 	c := make(chan os.Signal, 1)

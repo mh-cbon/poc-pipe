@@ -58,6 +58,7 @@ func (p *ByteStream) Unpipe(s Flusher) {
 	if i > -1 {
 		p.Streams = append(p.Streams[:i], p.Streams[i+1:]...)
 	}
+	fmt.Println(i)
 }
 func (p *ByteStream) Flush() error {
 	for _, pp := range p.Streams {
@@ -191,7 +192,7 @@ func (p *ByteSink) OnError(f func(Flusher, error) error) *ByteSink {
 }
 func (p *ByteSink) Write(d []byte) error {
 	_, err := p.w.Write(d)
-	if err != nil {
+	if err != nil && p.onErr != nil {
 		err = p.onErr(p, err)
 	}
 	return err

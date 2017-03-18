@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"strings"
 )
 
 type StringSlicePipeWriter interface {
@@ -28,7 +29,7 @@ func (p *StringSliceStream) Sink(s Flusher) {
 	}
 	p.Streams = append(p.Streams, x)
 }
-func (p *StringSliceStream) Unpipe(s Piper) {
+func (p *StringSliceStream) Unpipe(s Flusher) {
 	// add lock
 }
 func (p *StringSliceStream) Flush() error {
@@ -68,7 +69,7 @@ func (p *CsvReader) Consume() error {
 		// fmt.Println(len(data))
 		// <-time.After(1 * time.Second) // blah.
 		if err2 := p.Write(record); err2 != nil {
-			p.closed = err2 == io.EOF
+			p.closed = p.closed || err2 == io.EOF
 			err = err2
 		}
 		if p.closed {
@@ -82,6 +83,18 @@ func (p *CsvReader) Consume() error {
 	}
 
 	return err
+}
+
+type CsvWriter struct {
+	ByteStream
+}
+
+func (p *CsvWriter) Write(d []string) error {
+	data := strings.Join(d, ",")            // Quick and dirty
+	return p.ByteStream.Write([]byte(data)) // bad, so much allocations.
+}
+func (p *CsvWriter) Flush() error {
+	return nil
 }
 
 type StringSliceToByte struct {

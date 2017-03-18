@@ -189,8 +189,24 @@ func csvdemo() {
 	// k.Write([]byte(csvdata))
 	// b := &k
 
-	src := t.NewCsvReader(b)
+	/* cool stuff here,
+	if you construct a simpler csv parser using a
+	- ByteReader to read the source data
+	-> ByteSplitter to generate chunks of Line
+	-> StringSliceFromByte to split lines into col=>val
+	instead of a regular CsvReader source
+
+	the processing is much faster.
+	No magic here,
+	it only got ride of utf-8 support (in my understanding),
+	which is totally suitable in that case.
+	*/
+	// src := t.NewCsvReader(b)
+
+	src := t.NewByteReader(b)
 	src.
+		Pipe(t.NewBytesSplitter('\n')).
+		Pipe(t.NewStringSliceFromByte(",")).
 		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
 			log.Printf("ERR: %v", err)
 			return nil

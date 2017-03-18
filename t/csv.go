@@ -137,3 +137,19 @@ type AnythingToByte struct {
 func (p *AnythingToByte) Write(a interface{}) error {
 	return p.ByteStream.Write([]byte(fmt.Sprintf("%v", a)))
 }
+
+type StringSliceFromByte struct {
+	StringSliceStream
+	s string
+}
+
+func NewStringSliceFromByte(s string) *StringSliceFromByte {
+	return &StringSliceFromByte{
+		s: s,
+	}
+}
+
+func (p *StringSliceFromByte) Write(a []byte) error {
+	x := strings.Split(string(a), p.s)
+	return p.StringSliceStream.Write(x)
+}

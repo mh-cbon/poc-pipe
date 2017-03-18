@@ -106,10 +106,9 @@ In this example, the POC is definitely missing a streamReadWriter to clean a bit
 	close <- true
 ```
 
-#### Read a string as csv data, process data, change columns, encode back to csv
+#### Read a string as csv data, process data, change columns, encode back to csv, write stdout
 
 ```go
-
 // demo csv read/write.
 func csvdemo() {
 
@@ -122,7 +121,10 @@ func csvdemo() {
 
 	src := t.NewCsvReader(&b)
 	src.
-		Pipe(&processCsvRecords{}).
+		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
+			log.Printf("ERR: %v", err)
+			return nil
+		})).
 		Pipe(&t.CsvWriter{}).
 		Pipe(t.NewBytesPrefixer("", "\n")).
 		Sink(t.NewByteSink(os.Stdout))
@@ -140,21 +142,25 @@ func calculateE(sg float64, grade float64) float64 {
 
 type processCsvRecords struct {
 	t.StringSliceStream
+	i int
 	d bool
 }
 
+func (p *processCsvRecords) OnError(f func(t.Flusher, error) error) *processCsvRecords {
+	p.StringSliceStream.OnError(f)
+	return p
+}
 func (p *processCsvRecords) Write(rec []string) error {
-
 	// skip headers
 	if !p.d {
 		p.d = true
-		return p.StringSliceStream.Write(
-			[]string{"set", "headers", "as", "you", "d", "like", "it"},
-		)
+		return p.StringSliceStream.Write(append(rec[:4], "e", "sg", "grade"))
 	}
+
 	if len(rec) < 17 {
-		return fmt.Errorf("Line too short %#v", rec)
+		return p.HandleErr(fmt.Errorf("Line %v too short %#v", p.i, rec))
 	}
+	p.i++
 
 	sg, _ := strconv.ParseFloat(rec[17], 64)
 	grade, _ := strconv.ParseFloat(rec[13], 64)
@@ -170,9 +176,9 @@ func (p *processCsvRecords) Write(rec []string) error {
 	// fmt.Println(grade)
 	// get economic block value
 	e := calculateE(sg, grade)
-	gradeStr := strconv.FormatFloat(grade, 'f', 8, 64)
-	sgStr := strconv.FormatFloat(sg, 'f', 8, 64)
 	eStr := strconv.FormatFloat(e, 'f', 8, 64)
+	sgStr := strconv.FormatFloat(sg, 'f', 8, 64)
+	gradeStr := strconv.FormatFloat(grade, 'f', 8, 64)
 	return p.StringSliceStream.Write(
 		append(rec[0:4], eStr, sgStr, gradeStr),
 	)
@@ -180,7 +186,7 @@ func (p *processCsvRecords) Write(rec []string) error {
 
 // 500mb csv with head of the data looks like:
 const csvdata = `xcentre,ycentre,zcentre,xlength,ylength,zlength,fe_percent,fe_recovery,oxide,rescat,sg,mat_type_8,fillpc,mass_recovery,mass_recovery_percent,air,al2o3,cao,k2o,loi,mgo,mno,phos,sio2,tio2
-556960.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+556960.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,1.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557000.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 556960.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557000.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
@@ -189,5 +195,6 @@ const csvdata = `xcentre,ycentre,zcentre,xlength,ylength,zlength,fe_percent,fe_r
 556960.000,6320000.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557000.000,6320000.000,-1088.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,100,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557040.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+line,too,short
 `
 ```

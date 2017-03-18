@@ -1,13 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mh-cbon/pipe/t"
@@ -22,6 +24,8 @@ func main() {
 	// demo5()
 	// demo6()
 	csvdemo()
+	// readspeed()
+	// gendata()
 }
 
 func demo() {
@@ -175,24 +179,96 @@ func demo6() {
 // demo csv read/write.
 func csvdemo() {
 
-	// f, err := os.Open("C:/ORIG.csv")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	var b bytes.Buffer
-	b.Write([]byte(csvdata))
+	f, err := os.Open("data.csv")
+	defer f.Close()
+	if err != nil {
+		panic(err)
+	}
+	b := f
+	// var k bytes.Buffer
+	// k.Write([]byte(csvdata))
+	// b := &k
 
-	src := t.NewCsvReader(&b)
+	src := t.NewCsvReader(b)
 	src.
-		Pipe(&processCsvRecords{}).
+		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
+			log.Printf("ERR: %v", err)
+			return nil
+		})).
 		Pipe(&t.CsvWriter{}).
 		Pipe(t.NewBytesPrefixer("", "\n")).
-		Sink(t.NewByteSink(os.Stdout))
+		Pipe(&speed{}). // this is the output speed, not the processing speed
+		// Sink(t.NewByteSink(os.Stdout))
+		Sink(t.NewByteSink(ioutil.Discard))
 
 	if err := src.Consume(); err != nil {
 		panic(err)
 	}
 
+}
+
+func readspeed() {
+
+	f, err := os.Open("data.csv")
+	defer f.Close()
+	if err != nil {
+		panic(err)
+	}
+	b := f
+
+	src := t.NewByteReader(b)
+	src.
+		Pipe(&speed{}).
+		// Sink(t.NewByteSink(os.Stdout))
+		Sink(t.NewByteSink(ioutil.Discard))
+
+	if err := src.Consume(); err != nil {
+		panic(err)
+	}
+
+}
+
+type speed struct {
+	t.ByteStream
+	format string
+	c      int
+	x      <-chan time.Time
+	y      chan int
+	s      chan bool
+}
+
+func (p *speed) Write(d []byte) error {
+	if p.x == nil {
+		if p.format == "" {
+			p.format = "%vMb/s\n"
+		}
+		p.x = time.Tick(1 * time.Second)
+		p.y = make(chan int)
+		p.s = make(chan bool)
+		go func() {
+			c := 0
+			for {
+				select {
+				case <-p.s:
+					return
+				case <-p.x:
+					fmt.Printf(p.format, c/1024/1024) // not sure 200% :x
+					c = 0
+				case u := <-p.y:
+					c += u
+				}
+			}
+		}()
+	}
+	go func() {
+		p.y <- len(d)
+	}()
+	return p.ByteStream.Write(d)
+}
+func (p *speed) Flush() error {
+	// close(p.x)
+	p.s <- true
+	return p.ByteStream.Flush()
 }
 
 // Calculate economic block value given a 40x20x12 block of density sg and grade
@@ -202,47 +278,85 @@ func calculateE(sg float64, grade float64) float64 {
 
 type processCsvRecords struct {
 	t.StringSliceStream
+	i int
 	d bool
 }
 
+func (p *processCsvRecords) OnError(f func(t.Flusher, error) error) *processCsvRecords {
+	p.StringSliceStream.OnError(f)
+	return p
+}
 func (p *processCsvRecords) Write(rec []string) error {
-
 	// skip headers
+
+	if len(rec) < 1 {
+		return p.HandleErr(fmt.Errorf("Line %v too short %#v", p.i, rec))
+	}
+
 	if !p.d {
 		p.d = true
-		return p.StringSliceStream.Write(
-			[]string{"set", "headers", "as", "you", "d", "like", "it"},
-		)
+		return p.StringSliceStream.Write(append(rec[:4], "e", "sg", "grade"))
 	}
+
 	if len(rec) < 17 {
-		return fmt.Errorf("Line too short %#v", rec)
+		return p.HandleErr(fmt.Errorf("Line %v too short %#v", p.i, rec))
+	}
+	p.i++
+
+	sg := 0.0
+	grade := 0.0
+
+	zStr := "0.00000000"
+
+	if rec[17] != zStr {
+		sg, _ = strconv.ParseFloat(rec[17], 64)
+		if sg < 0 {
+			sg = 0
+		}
+	}
+	if rec[13] != zStr {
+		grade, _ = strconv.ParseFloat(rec[13], 64)
+		if grade < 0 {
+			grade = 0
+		}
 	}
 
-	sg, _ := strconv.ParseFloat(rec[17], 64)
-	grade, _ := strconv.ParseFloat(rec[13], 64)
-
-	if grade < 0 {
-		grade = 0
-	} else {
+	eStr := zStr
+	sgStr := zStr
+	gradeStr := zStr
+	if grade > 0 {
 		grade = 0.1 * grade
+		e := calculateE(sg, grade)
+		eStr = strconv.FormatFloat(e, 'f', 8, 64)
+		sgStr = strconv.FormatFloat(sg, 'f', 8, 64)
+		gradeStr = strconv.FormatFloat(grade, 'f', 8, 64)
 	}
-	if sg < 0 {
-		sg = 0
-	}
+
 	// fmt.Println(grade)
 	// get economic block value
-	e := calculateE(sg, grade)
-	gradeStr := strconv.FormatFloat(grade, 'f', 8, 64)
-	sgStr := strconv.FormatFloat(sg, 'f', 8, 64)
-	eStr := strconv.FormatFloat(e, 'f', 8, 64)
+	s(eStr, sgStr, gradeStr)
 	return p.StringSliceStream.Write(
 		append(rec[0:4], eStr, sgStr, gradeStr),
 	)
+	// return p.StringSliceStream.Write(rec)
+}
+func s(ss ...string) {}
+
+func gendata() {
+	l := strings.Split(csvdata, "\n")
+	l = l[1:]
+	f, err := os.Create("data.csv")
+	fmt.Println(err)
+	f.Write([]byte(csvdata))
+	for i := 0; i < 1000000; i++ {
+		f.Write([]byte(strings.Join(l, "\n")))
+	}
+	f.Close()
 }
 
 // 500mb csv with head of the data looks like:
 const csvdata = `xcentre,ycentre,zcentre,xlength,ylength,zlength,fe_percent,fe_recovery,oxide,rescat,sg,mat_type_8,fillpc,mass_recovery,mass_recovery_percent,air,al2o3,cao,k2o,loi,mgo,mno,phos,sio2,tio2
-556960.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
+556960.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,1.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557000.000,6319980.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 556960.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000
 557000.000,6320000.000,-1100.000,40.000,20.000,12.000,-99.00000000,66.00000000,-99,4,2.84999990,2,91,0.00000000,0.00000000,0,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000

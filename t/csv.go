@@ -1,6 +1,7 @@
 package t
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ type StringSlicePipeWriter interface {
 
 type StringSliceStream struct {
 	Streams []StringSlicePipeWriter
+	onErr   func(Flusher, error) error
 }
 
 func (p *StringSliceStream) Pipe(s Piper) Piper {
@@ -47,6 +49,16 @@ func (p *StringSliceStream) Write(d []string) error {
 		}
 	}
 	return nil
+}
+func (p *StringSliceStream) OnError(f func(Flusher, error) error) *StringSliceStream {
+	p.onErr = f
+	return p
+}
+func (p *StringSliceStream) HandleErr(err error) error {
+	if p.onErr != nil {
+		err = p.onErr(p, err)
+	}
+	return err
 }
 
 type CsvReader struct {
@@ -87,14 +99,27 @@ func (p *CsvReader) Consume() error {
 
 type CsvWriter struct {
 	ByteStream
+	b     bytes.Buffer
+	onErr func(Flusher, error) error
 }
 
 func (p *CsvWriter) Write(d []string) error {
-	data := strings.Join(d, ",")            // Quick and dirty
-	return p.ByteStream.Write([]byte(data)) // bad, so much allocations.
+	p.b.Truncate(0)
+	p.b.WriteString(strings.Join(d, ","))
+	return p.ByteStream.Write(p.b.Bytes())
 }
 func (p *CsvWriter) Flush() error {
-	return nil
+	return p.ByteStream.Flush()
+}
+func (p *CsvWriter) OnError(f func(Flusher, error) error) *CsvWriter {
+	p.onErr = f
+	return p
+}
+func (p *CsvWriter) HandleErr(err error) error {
+	if p.onErr != nil {
+		err = p.onErr(p, err)
+	}
+	return err
 }
 
 type StringSliceToByte struct {

@@ -108,6 +108,19 @@ In this example, the POC is definitely missing a streamReadWriter to clean a bit
 
 #### Read a string as csv data, process data, change columns, encode back to csv, write stdout
 
+It also demosntrate bandwidth meter
+
+```sh
+....
+READ      39Mb/s
+WRITE     13Mb/s
+
+real	0m44.591s // processed 1.9G, is it fast ?
+user	1m35.527s
+sys	0m6.060s
+
+```
+
 ```go
 
 // demo csv read/write.
@@ -139,6 +152,7 @@ func csvdemo() {
 
 	src := t.NewByteReader(b)
 	src.
+		Pipe(&speed{format: "READ      %v%v\n"}).
 		Pipe(t.NewBytesSplitter('\n')).
 		Pipe(t.NewStringSliceFromByte(",")).
 		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
@@ -147,14 +161,13 @@ func csvdemo() {
 		})).
 		Pipe(&t.CsvWriter{}).
 		Pipe(t.NewBytesPrefixer("", "\n")).
-		Pipe(&speed{}). // this is the output speed, not the processing speed
+		Pipe(&speed{format: "WRITE     %v%v\n"}). // this is the output speed, not the processing speed
 		// Sink(t.NewByteSink(os.Stdout))
 		Sink(t.NewByteSink(ioutil.Discard))
 
 	if err := src.Consume(); err != nil {
 		panic(err)
 	}
-
 }
 
 // Calculate economic block value given a 40x20x12 block of density sg and grade

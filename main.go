@@ -205,6 +205,7 @@ func csvdemo() {
 
 	src := t.NewByteReader(b)
 	src.
+		Pipe(&speed{format: "READ      %v%v\n"}).
 		Pipe(t.NewBytesSplitter('\n')).
 		Pipe(t.NewStringSliceFromByte(",")).
 		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
@@ -213,7 +214,7 @@ func csvdemo() {
 		})).
 		Pipe(&t.CsvWriter{}).
 		Pipe(t.NewBytesPrefixer("", "\n")).
-		Pipe(&speed{}). // this is the output speed, not the processing speed
+		Pipe(&speed{format: "WRITE     %v%v\n"}). // this is the output speed, not the processing speed
 		// Sink(t.NewByteSink(os.Stdout))
 		Sink(t.NewByteSink(ioutil.Discard))
 
@@ -256,7 +257,7 @@ type speed struct {
 func (p *speed) Write(d []byte) error {
 	if p.x == nil {
 		if p.format == "" {
-			p.format = "%vMb/s\n"
+			p.format = "%v%v\n"
 		}
 		p.x = time.Tick(1 * time.Second)
 		p.y = make(chan int)
@@ -268,7 +269,7 @@ func (p *speed) Write(d []byte) error {
 				case <-p.s:
 					return
 				case <-p.x:
-					fmt.Printf(p.format, c/1024/1024) // not sure 200% :x
+					fmt.Printf(p.format, c/1024/1024, "Mb/s") // not sure 200% :x
 					c = 0
 				case u := <-p.y:
 					c += u

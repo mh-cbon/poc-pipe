@@ -109,25 +109,47 @@ In this example, the POC is definitely missing a streamReadWriter to clean a bit
 #### Read a string as csv data, process data, change columns, encode back to csv, write stdout
 
 ```go
+
 // demo csv read/write.
 func csvdemo() {
 
-	// f, err := os.Open("C:/ORIG.csv")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	var b bytes.Buffer
-	b.Write([]byte(csvdata))
+	f, err := os.Open("data.csv")
+	defer f.Close()
+	if err != nil {
+		panic(err)
+	}
+	b := f
+	// var k bytes.Buffer
+	// k.Write([]byte(csvdata))
+	// b := &k
 
-	src := t.NewCsvReader(&b)
+	/* cool stuff here,
+	if you construct a simpler csv parser using a
+	- ByteReader to read the source data
+	-> ByteSplitter to generate chunks of Line
+	-> StringSliceFromByte to split lines into col=>val
+	instead of a regular CsvReader source
+
+	the processing is much faster.
+	No magic here,
+	it only got ride of utf-8 support (in my understanding),
+	which is totally suitable in that case.
+	*/
+	// src := t.NewCsvReader(b)
+
+	src := t.NewByteReader(b)
 	src.
+		Pipe(t.NewBytesSplitter('\n')).
+		Pipe(t.NewStringSliceFromByte(",")).
 		Pipe((&processCsvRecords{}).OnError(func(p t.Flusher, err error) error {
 			log.Printf("ERR: %v", err)
 			return nil
 		})).
 		Pipe(&t.CsvWriter{}).
 		Pipe(t.NewBytesPrefixer("", "\n")).
-		Sink(t.NewByteSink(os.Stdout))
+		Pipe(&speed{}). // this is the output speed, not the processing speed
+		// Sink(t.NewByteSink(os.Stdout))
+		Sink(t.NewByteSink(ioutil.Discard))
 
 	if err := src.Consume(); err != nil {
 		panic(err)
